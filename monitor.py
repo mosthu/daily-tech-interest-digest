@@ -440,15 +440,30 @@ def markdown_report(listings: list[Listing], history: list[dict], news: list[New
     return "\n".join(rows) + news_section(news)
 
 
+def markdown_title(value: str) -> str:
+    """Keep RSS titles from accidentally breaking the Markdown link."""
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
 def news_section(news: list[NewsItem]) -> str:
     rows = ["\n\n## 最近硬件新闻"]
     if not news:
         return "\n".join(rows + ["\n暂未抓到过去48小时内符合条件的硬件新闻。", trend_outlook(news)])
-    for item in news:
+    for number, item in enumerate(news, start=1):
         title = item.title_zh or item.title
         summary_text = item.summary_zh or item.summary
-        summary = f"：{summary_text}" if summary_text else ""
-        rows.append(f"- [{title}]({item.url})（{item.source}，{item.published_at}）{summary}")
+        summary_text = summary_text or "暂无摘要。"
+        rows.extend(
+            [
+                f"\n### {number}. [{markdown_title(title)}]({item.url})",
+                f"来源：{item.source}　发布时间：{item.published_at}",
+                "",
+                summary_text,
+                "",
+                f"[阅读原文]({item.url})",
+                "\n---",
+            ]
+        )
     rows.append("\n" + trend_outlook(news))
     return "\n".join(rows)
 
