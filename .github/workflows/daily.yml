@@ -27,6 +27,7 @@ jobs:
       - name: 采集价格、翻译新闻并推送微信
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_CLAWBOT_TOKEN: ${{ secrets.PUSHPLUS_CLAWBOT_TOKEN }}
         run: python monitor.py
 
       - name: 保存价格历史

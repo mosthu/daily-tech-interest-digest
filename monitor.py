@@ -539,19 +539,58 @@ def news_section(news: list[NewsItem]) -> str:
     return "\n".join(rows)
 
 
-def send_pushplus(content: str) -> None:
-    token = os.environ.get("PUSHPLUS_TOKEN")
-    if not token:
-        raise RuntimeError("未设置 PUSHPLUS_TOKEN 环境变量")
+def plain_text_report(markdown: str) -> str:
+    """Convert Markdown into readable plain text for the ClawBot channel."""
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1（\2）", markdown)
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = text.replace("**", "").replace("`", "")
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if re.fullmatch(r"\|?[\s:|-]+\|?", stripped):
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            line = " ｜ ".join(part.strip() for part in stripped.strip("|").split("|"))
+        lines.append(line.rstrip())
+    return "\n".join(lines).strip()
+
+
+def pushplus_send(token: str, content: str, template: str, channel: str | None = None) -> None:
+    payload = {
+        "token": token,
+        "title": "NVIDIA & AMD 显卡价格日报",
+        "content": content,
+        "template": template,
+    }
+    if channel:
+        payload["channel"] = channel
     response = requests.post(
         "https://www.pushplus.plus/send",
-        json={"token": token, "title": "NVIDIA & AMD 显卡价格日报", "content": content, "template": "markdown"},
+        json=payload,
         timeout=25,
     )
     response.raise_for_status()
     body = response.json()
     if str(body.get("code")) not in {"200", "0"}:
         raise RuntimeError(f"PushPlus 返回异常：{body}")
+
+
+def send_pushplus(content: str) -> None:
+    token = os.environ.get("PUSHPLUS_TOKEN")
+    if not token:
+        raise RuntimeError("未设置 PUSHPLUS_TOKEN 环境变量")
+    pushplus_send(token, content, "markdown")
+
+    # ClawBot uses the same PushPlus account by default. A separate token can
+    # be supplied when the ClawBot channel belongs to another account.
+    clawbot_token = os.environ.get("PUSHPLUS_CLAWBOT_TOKEN") or token
+    try:
+        pushplus_send(clawbot_token, plain_text_report(content), "txt", "clawbot")
+        print("PushPlus ClawBot 推送成功")
+    except (requests.RequestException, RuntimeError, ValueError) as exc:
+        # ClawBot is an additional channel; keep the normal daily report alive
+        # when the channel has not been activated or is temporarily unavailable.
+        print(f"PushPlus ClawBot 推送失败（普通 PushPlus 已成功）：{exc}", file=sys.stderr)
 
 
 def collect_market_listings(session: requests.Session) -> tuple[list[Listing], dict[str, int], list[str]]:

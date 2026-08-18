@@ -12,8 +12,9 @@
 2. 在 PushPlus 获取个人 Token，并在 GitHub 仓库中进入 **Settings → Secrets and variables → Actions**，新建 Secret：
    - Name：`PUSHPLUS_TOKEN`
    - Secret：你的 PushPlus Token
-3. 在仓库的 **Actions** 页面手动运行一次 `NVIDIA & AMD consumer GPU daily price report`，确认能收到测试消息。
-4. 之后由 GitHub Actions 每天自动运行。定时任务使用 `01:00 UTC`，对应北京时间 `09:00`；GitHub 的计划任务可能有少量延迟。
+3. 在 PushPlus 中激活微信 ClawBot 通道。程序会使用同一个 `PUSHPLUS_TOKEN` 再推送一份 ClawBot 纯文本日报；如果 ClawBot 使用另一个 PushPlus 账号，可额外添加 `PUSHPLUS_CLAWBOT_TOKEN` Secret。
+4. 在仓库的 **Actions** 页面手动运行一次 `NVIDIA 和 AMD 消费级显卡每日价格报告`，确认能收到普通 PushPlus 和 ClawBot 两份消息。
+5. 之后由 GitHub Actions 每天自动运行。定时任务使用 `01:00 UTC`，对应北京时间 `09:00`；GitHub 的计划任务可能有少量延迟。
 
 ## 日报内容
 
@@ -37,6 +38,7 @@
 - 二手平台价格是挂牌价，不是最终成交价；需要自行核对成色、维修史、矿卡风险、序列号、发票和售后。
 - 新闻来自公开 RSS；如果新闻源暂时不可用，日报仍会照常推送价格部分。
 - 新闻翻译为免密钥的自动翻译；如果翻译服务暂时不可用，会保留英文原文，不影响日报推送。
+- ClawBot 使用纯文本模板推送，以保证长日报内容完整显示；如果 ClawBot 尚未激活，普通 PushPlus 推送仍会正常发送。
 - 趋势判断是基于新闻标题和摘要的自动研判，不是保证涨跌的投资或购买结论。
 - 京东券、跨店满减、以旧换新和会员价可能没有包含在页面标价中。
 - PushPlus 的 Token 只放在 GitHub Secret 中，不要写进代码或提交到仓库。
