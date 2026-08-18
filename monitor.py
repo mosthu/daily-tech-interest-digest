@@ -84,6 +84,9 @@ USED_PLATFORM_URLS = {
     "闲鱼": "https://www.goofish.com/search?q={query}",
     "转转": "https://www.zhuanzhuan.com/search?keyword={query}",
 }
+LISTED_PRICE = "公开挂牌"
+SOLD_REFERENCE_PRICE = "已售/已成交参考"
+SOLD_MARKERS = ("已售", "已成交", "已卖出", "交易成功", "sold", "sold out")
 
 
 @dataclass
@@ -98,6 +101,7 @@ class Listing:
     captured_at: str
     platform: str = "京东"
     market_type: str = "全新"
+    price_kind: str = LISTED_PRICE
 
 
 @dataclass
@@ -145,6 +149,11 @@ def classify_variant(name: str) -> str:
 
 def clean_text(node) -> str:
     return " ".join(node.get_text(" ", strip=True).split()) if node else ""
+
+
+def has_sold_marker(value: str) -> bool:
+    text = (value or "").lower()
+    return any(marker in text for marker in SOLD_MARKERS)
 
 
 def parse_price(value: str) -> float | None:
@@ -301,6 +310,22 @@ def jd_search(brand: str, model: str, session: requests.Session) -> list[Listing
         link = f"https://item.jd.com/{sku}.html" if sku else url
         shop = clean_text(card.select_one(".p-shop")) or "京东"
         listings.append(Listing(brand, model, name, price, shop, classify_variant(name), link, captured_at, "京东", "全新"))
+        if has_sold_marker(clean_text(card)):
+            listings.append(
+                Listing(
+                    brand,
+                    model,
+                    f"{name}（页面已售/已成交样本）",
+                    price,
+                    shop,
+                    classify_variant(name),
+                    link,
+                    captured_at,
+                    "京东",
+                    "全新",
+                    SOLD_REFERENCE_PRICE,
+                )
+            )
     return listings
 
 
@@ -341,14 +366,32 @@ def generic_platform_search(
         return []
     captured_at = datetime.now(TZ_CN).isoformat(timespec="seconds")
     label = f"{model}（{platform}搜索最低参考价）"
-    return [Listing(brand, model, label, price, "平台搜索结果", classify_variant(label), search_url, captured_at, platform, market_type)]
+    listings = [Listing(brand, model, label, price, "平台搜索结果", classify_variant(label), search_url, captured_at, platform, market_type)]
+    if has_sold_marker(response.text):
+        sold_label = f"{model}（{platform}页面已售/已成交参考价）"
+        listings.append(
+            Listing(
+                brand,
+                model,
+                sold_label,
+                price,
+                "平台搜索结果",
+                classify_variant(sold_label),
+                search_url,
+                captured_at,
+                platform,
+                market_type,
+                SOLD_REFERENCE_PRICE,
+            )
+        )
+    return listings
 
 
 def representatives(listings: Iterable[Listing]) -> list[Listing]:
-    # One lowest-price listing per GPU family and platform keeps the digest readable.
-    cheapest: dict[tuple[str, str, str, str], Listing] = {}
+    # One lowest-price listing per GPU family, platform and price layer keeps the digest readable.
+    cheapest: dict[tuple[str, str, str, str, str], Listing] = {}
     for item in listings:
-        key = (item.brand, item.gpu_model, item.platform, item.market_type)
+        key = (item.brand, item.gpu_model, item.platform, item.market_type, item.price_kind)
         if key not in cheapest or item.price < cheapest[key].price:
             cheapest[key] = item
     return sorted(cheapest.values(), key=lambda x: (x.brand, x.price))
@@ -377,13 +420,23 @@ def save_history(history: list[dict]) -> None:
     HISTORY_PATH.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def recent_low(history: list[dict], brand: str, gpu_model: str, platform: str, market_type: str, days: int) -> float | None:
+def recent_low(
+    history: list[dict],
+    brand: str,
+    gpu_model: str,
+    platform: str,
+    market_type: str,
+    price_kind: str,
+    days: int,
+) -> float | None:
     cutoff = datetime.now(TZ_CN) - timedelta(days=days)
     prices = []
     for row in history:
         if row.get("brand") != brand or row.get("gpu_model") != gpu_model:
             continue
         if row.get("platform", "京东") != platform or row.get("market_type", "全新") != market_type:
+            continue
+        if row.get("price_kind", LISTED_PRICE) != price_kind:
             continue
         try:
             when = datetime.fromisoformat(row["captured_at"])
@@ -397,14 +450,18 @@ def recent_low(history: list[dict], brand: str, gpu_model: str, platform: str, m
 def price_cell(item: Listing | None, history: list[dict]) -> str:
     if item is None:
         return "—"
-    low30 = recent_low(history, item.brand, item.gpu_model, item.platform, item.market_type, 30)
+    low30 = recent_low(history, item.brand, item.gpu_model, item.platform, item.market_type, item.price_kind, 30)
     low30_text = f"，30日低¥{low30:,.0f}" if low30 is not None else ""
     return f"[¥{item.price:,.0f}]({item.url})（{item.variant}{low30_text}）"
 
 
-def comparison_table(listings: list[Listing], history: list[dict], market_type: str) -> list[str]:
+def comparison_table(listings: list[Listing], history: list[dict], market_type: str, price_kind: str) -> list[str]:
     platforms = list(NEW_PLATFORM_URLS) if market_type == "全新" else list(USED_PLATFORM_URLS)
-    matrix = {(item.brand, item.gpu_model, item.platform): item for item in listings if item.market_type == market_type}
+    matrix = {
+        (item.brand, item.gpu_model, item.platform): item
+        for item in listings
+        if item.market_type == market_type and item.price_kind == price_kind
+    }
     keys = [(brand, model) for brand, model in GPU_MODELS if any((brand, model, p) in matrix for p in platforms)]
     if not keys:
         return ["暂无可用数据。"]
@@ -427,16 +484,30 @@ def markdown_report(listings: list[Listing], history: list[dict], news: list[New
         report = f"## {title}\n\n日期：{today}\n\n本次未抓到可用平台价格，可能是页面结构变化、登录验证或访问限制。"
         return report + news_section(news)
 
-    new_count = sum(1 for item in listings if item.market_type == "全新")
-    used_count = sum(1 for item in listings if item.market_type == "二手")
-    rows = [f"## {title}\n\n日期：{today}\n", f"本次抓到 {new_count} 条全新卡报价、{used_count} 条二手卡报价。表格中的价格是平台当前抓到的最低参考价。\n"]
-    rows.append("### 全新显卡：京东 / 淘宝 / 拼多多 / 抖音")
-    rows.extend(comparison_table(listings, history, "全新"))
-    rows.append("\n### 二手显卡：闲鱼 / 转转")
-    rows.extend(comparison_table(listings, history, "二手"))
+    listed_count = sum(1 for item in listings if item.price_kind == LISTED_PRICE)
+    sold_count = sum(1 for item in listings if item.price_kind == SOLD_REFERENCE_PRICE)
+    rows = [
+        f"## {title}\n\n日期：{today}\n",
+        f"本次抓到 {listed_count} 条公开挂牌价、{sold_count} 条已售/已成交参考价。\n",
+        "### 第一层：公开挂牌最低价",
+        "#### 全新显卡：京东 / 淘宝 / 拼多多 / 抖音",
+    ]
+    rows.extend(comparison_table(listings, history, "全新", LISTED_PRICE))
+    rows.append("\n#### 二手显卡：闲鱼 / 转转")
+    rows.extend(comparison_table(listings, history, "二手", LISTED_PRICE))
+    rows.extend(
+        [
+            "\n### 第二层：已售/已成交参考价",
+            "> 仅统计页面明确出现“已售、已成交、已卖出、交易成功”等标记的公开样本，不代表平台全网真实最低实付价。",
+            "#### 全新显卡：京东 / 淘宝 / 拼多多 / 抖音",
+        ]
+    )
+    rows.extend(comparison_table(listings, history, "全新", SOLD_REFERENCE_PRICE))
+    rows.append("\n#### 二手显卡：闲鱼 / 转转")
+    rows.extend(comparison_table(listings, history, "二手", SOLD_REFERENCE_PRICE))
     status_text = "；".join(f"{platform}：{count}条" for platform, count in statuses.items())
-    rows.append(f"\n> 平台采集状态：{status_text}。`—` 表示本次没有抓到可验证的公开报价。价格可能不含券、补贴、运费或议价空间。")
-    rows.append("> 二手价格只代表挂牌价，不等于最终成交价；请重点核对成色、维修史、矿卡风险、序列号和售后。")
+    rows.append(f"\n> 平台采集状态：{status_text}。`—` 表示本次没有抓到可验证的公开价格或成交标记。公开挂牌价可能不含券、补贴、运费或议价空间。")
+    rows.append("> 二手挂牌价和已售样本价都不等于平台全网最终成交最低价；请重点核对成色、维修史、矿卡风险、序列号和售后。")
     return "\n".join(rows) + news_section(news)
 
 
