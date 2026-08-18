@@ -1,4 +1,4 @@
-name: NVIDIA & AMD consumer GPU daily price report
+name: NVIDIA 和 AMD 消费级显卡每日价格报告
 
 on:
   workflow_dispatch:
@@ -13,23 +13,23 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: 设置 Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: Collect prices and push to WeChat
+      - name: 采集价格、翻译新闻并推送微信
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: python monitor.py
 
-      - name: Save price history
+      - name: 保存价格历史
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

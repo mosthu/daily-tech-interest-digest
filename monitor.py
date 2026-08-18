@@ -65,6 +65,8 @@ NEWS_FEEDS = {
     "TechPowerUp": "https://www.techpowerup.com/rss/news",
     "VideoCardz": "https://videocardz.com/feed",
 }
+TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
+CHINESE_TEXT = re.compile(r"[\u4e00-\u9fff]")
 NEWS_KEYWORDS = (
     "gpu", "graphics card", "graphics cards", "geforce", "radeon", "rtx", "rx ",
     "cpu", "processor", "ryzen", "intel", "core ultra", "memory", "dram", "ddr4",
@@ -105,6 +107,8 @@ class NewsItem:
     url: str
     published_at: str
     summary: str
+    title_zh: str = ""
+    summary_zh: str = ""
 
 
 def compact(value: str) -> str:
@@ -174,6 +178,30 @@ def strip_html(value: str) -> str:
     return re.sub(r"\s+", " ", BeautifulSoup(value or "", "html.parser").get_text(" ", strip=True))
 
 
+def translate_to_chinese(text: str, session: requests.Session) -> str:
+    """Translate an English news field to Simplified Chinese when needed.
+
+    The public endpoint does not require another secret. Translation is best-effort:
+    if the service is unavailable, the original English text is returned so the
+    daily report still goes out.
+    """
+    value = " ".join((text or "").split())
+    if not value or CHINESE_TEXT.search(value):
+        return value
+    try:
+        response = session.get(
+            TRANSLATE_URL,
+            params={"client": "gtx", "sl": "auto", "tl": "zh-CN", "dt": "t", "q": value[:1200]},
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        translated = "".join(part[0] for part in payload[0] if part and part[0])
+        return translated.strip() or value
+    except (IndexError, KeyError, TypeError, ValueError, requests.RequestException):
+        return value
+
+
 def fetch_news(session: requests.Session) -> tuple[list[NewsItem], list[str]]:
     cutoff = datetime.now(TZ_CN) - timedelta(hours=48)
     items: list[NewsItem] = []
@@ -200,7 +228,18 @@ def fetch_news(session: requests.Session) -> tuple[list[NewsItem], list[str]]:
                     continue
                 if published_dt and published_dt < cutoff:
                     continue
-                items.append(NewsItem(source, title, urljoin(feed_url, link), published_dt.isoformat(timespec="minutes") if published_dt else "时间未知", summary[:240]))
+                short_summary = summary[:240]
+                items.append(
+                    NewsItem(
+                        source,
+                        title,
+                        urljoin(feed_url, link),
+                        published_dt.isoformat(timespec="minutes") if published_dt else "时间未知",
+                        short_summary,
+                        translate_to_chinese(title, session),
+                        translate_to_chinese(short_summary, session),
+                    )
+                )
         except (requests.RequestException, ElementTree.ParseError) as exc:
             errors.append(f"{source}: {exc.__class__.__name__}")
 
@@ -406,8 +445,10 @@ def news_section(news: list[NewsItem]) -> str:
     if not news:
         return "\n".join(rows + ["\n暂未抓到过去48小时内符合条件的硬件新闻。", trend_outlook(news)])
     for item in news:
-        summary = f"：{item.summary}" if item.summary else ""
-        rows.append(f"- [{item.title}]({item.url})（{item.source}，{item.published_at}）{summary}")
+        title = item.title_zh or item.title
+        summary_text = item.summary_zh or item.summary
+        summary = f"：{summary_text}" if summary_text else ""
+        rows.append(f"- [{title}]({item.url})（{item.source}，{item.published_at}）{summary}")
     rows.append("\n" + trend_outlook(news))
     return "\n".join(rows)
 
