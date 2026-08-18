@@ -1,0 +1,38 @@
+name: NVIDIA & AMD consumer GPU daily price report
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 01:00 UTC = 09:00 Asia/Shanghai. GitHub may delay scheduled jobs briefly.
+    - cron: "0 1 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect prices and push to WeChat
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+        run: python monitor.py
+
+      - name: Save price history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/price_history.json
+          git diff --cached --quiet || git commit -m "chore: update RX 9070 XT price history"
+          git push
