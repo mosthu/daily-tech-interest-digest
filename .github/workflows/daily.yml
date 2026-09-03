@@ -6,7 +6,7 @@ on:
     - cron: "0 1 * * *" # 北京时间 09:00
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   digest:
@@ -23,11 +23,21 @@ jobs:
           pip install -r requirements.txt
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
-      - name: 生成中文简报、竖版长图并推送 ClawBot
+      - name: 生成中文简报和竖版长图
+        run: python tech_digest.py --generate-only
+      - name: 发布长图到独立资源分支
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: digest-assets
+          publish_dir: ./output
+          force_orphan: true
+      - name: 推送到 PushPlus ClawBot
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_CLAWBOT_TOKEN: ${{ secrets.PUSHPLUS_CLAWBOT_TOKEN }}
-        run: python tech_digest.py
+          PUBLIC_IMAGE_URL: https://raw.githubusercontent.com/mosthu/multi-platform-gpu-price-watch/digest-assets/tech-digest.png?v=${{ github.run_id }}
+        run: python tech_digest.py --send-existing
       - name: 保存本次简报产物
         if: always()
         uses: actions/upload-artifact@v4
