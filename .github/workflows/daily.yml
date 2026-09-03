@@ -1,39 +1,38 @@
-name: NVIDIA 和 AMD 消费级显卡每日价格报告
+name: 每日科技兴趣简报
 
 on:
   workflow_dispatch:
   schedule:
-    # 01:00 UTC = 09:00 Asia/Shanghai. GitHub may delay scheduled jobs briefly.
-    - cron: "0 1 * * *"
+    - cron: "0 1 * * *" # 北京时间 09:00
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  report:
+  digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v5
-
-      - name: 设置 Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-
-      - name: 安装依赖
-        run: pip install -r requirements.txt
-
-      - name: 采集价格、翻译新闻并推送微信
-        env:
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          PUSHPLUS_CLAWBOT_TOKEN: ${{ secrets.PUSHPLUS_CLAWBOT_TOKEN }}
-        run: python monitor.py
-
-      - name: 保存价格历史
+          cache: pip
+      - name: 安装依赖和中文字体
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/price_history.json
-          git diff --cached --quiet || git commit -m "chore: update RX 9070 XT price history"
-          git push
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+      - name: 生成中文简报、竖版长图并推送 ClawBot
+        env:
+          PUSHPLUS_TOKEN: \${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_CLAWBOT_TOKEN: \${{ secrets.PUSHPLUS_CLAWBOT_TOKEN }}
+        run: python tech_digest.py
+      - name: 保存本次简报产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech-digest
+          path: output/
+          if-no-files-found: warn
+          retention-days: 7
