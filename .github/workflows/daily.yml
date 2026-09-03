@@ -36,7 +36,7 @@ jobs:
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_CLAWBOT_TOKEN: ${{ secrets.PUSHPLUS_CLAWBOT_TOKEN }}
-          PUBLIC_IMAGE_URL: https://raw.githubusercontent.com/mosthu/multi-platform-gpu-price-watch/digest-assets/tech-digest.png?v=${{ github.run_id }}
+          PUBLIC_IMAGE_URL: https://raw.githubusercontent.com/mosthu/daily-tech-interest-digest/digest-assets/tech-digest.png?v=${{ github.run_id }}
         run: python tech_digest.py --send-existing
       - name: 保存本次简报产物
         if: always()
