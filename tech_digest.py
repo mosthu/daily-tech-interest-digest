@@ -2,7 +2,7 @@
 """Generate a Chinese daily tech digest, mobile poster, and PushPlus delivery."""
 from __future__ import annotations
 
-import base64, html, os, re, sys
+import argparse, html, os, re, sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -116,12 +116,19 @@ def make_poster(items):
 def send(content,path):
  token=os.getenv("PUSHPLUS_CLAWBOT_TOKEN") or os.getenv("PUSHPLUS_TOKEN")
  if not token:raise RuntimeError("未设置 PUSHPLUS_TOKEN 或 PUSHPLUS_CLAWBOT_TOKEN")
- data=base64.b64encode(path.read_bytes()).decode();payload={"token":token,"title":"每日科技兴趣简报","content":f'<img src="data:image/png;base64,{data}" style="max-width:100%" />',"template":"html","channel":"clawbot"}
+ image_url=os.getenv("PUBLIC_IMAGE_URL")
+ if not image_url:raise RuntimeError("未设置 PUBLIC_IMAGE_URL")
+ payload={"token":token,"title":"每日科技兴趣简报","content":f'<img src="{html.escape(image_url,quote=True)}" style="max-width:100%" /><br/><p>{html.escape(content[:500])}</p>',"template":"html","channel":"clawbot"}
  r=requests.post("https://www.pushplus.plus/send",json=payload,timeout=60);r.raise_for_status();result=r.json()
  if str(result.get("code")) not in {"0","200"}:raise RuntimeError(f"PushPlus 返回异常：{result}")
 
 def main():
+ parser=argparse.ArgumentParser();parser.add_argument("--generate-only",action="store_true");parser.add_argument("--send-existing",action="store_true");args=parser.parse_args()
+ if args.send_existing:
+  send((OUT/"tech-digest.md").read_text(encoding="utf-8"),POSTER);return 0
  session=requests.Session();session.headers["User-Agent"]="Mozilla/5.0 TechDigestBot/1.0";items,warnings=collect(session);items=choose(items)
  for x in items:x.title=translate(x.title,session);x.summary=translate(x.summary,session)
- content=report(items,warnings);path=make_poster(items);(OUT/"tech-digest.md").write_text(content,encoding="utf-8");send(content,path);print(content);return 0
+ content=report(items,warnings);path=make_poster(items);(OUT/"tech-digest.md").write_text(content,encoding="utf-8")
+ if not args.generate_only:send(content,path)
+ print(content);return 0
 if __name__=="__main__":sys.exit(main())
